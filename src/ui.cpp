@@ -192,8 +192,8 @@ void PlayScreen::draw(MusicPlayer& pl) {
     // volume: 20 thin left-aligned stripes (volume changes in steps of 5, so one
     // strip per UP press), narrow at the bottom widening to the top. Lit strips:
     // green up to ~2/3, then yellow, then red.
-    const int16_t baseY = H() - 28, volX = 6;
-    const int16_t minW = 2, maxW = 10, stH = 1, stGap = 3;
+    const int16_t baseY = H() - 38, volX = 6;
+    const int16_t minW = 2, maxW = 10, stH = 1, stGap = 4;
     const int steps = pl.volume100() / 5; // 0..20 lit strips
     for (int i = 0; i < 20; i++) {
         int16_t w = (int16_t)((uint32_t)(minW + (maxW - minW) * i / 19));
@@ -204,7 +204,7 @@ void PlayScreen::draw(MusicPlayer& pl) {
     }
 
     // spectrum: 15 bars to the right of the volume stripes, sharing their baseline
-    const int16_t maxH = 110, barW = 10, gap = 3, x0 = 39;
+    const int16_t maxH = 100, barW = 10, gap = 3, x0 = 39;
     uint8_t bands[MusicPlayer::SPECTRUM_BANDS] = {};
     uint8_t peaks[MusicPlayer::SPECTRUM_BANDS] = {};
     if (pl.isPlaying() && !pl.isPaused()) pl.getSpectrum(bands, peaks);
