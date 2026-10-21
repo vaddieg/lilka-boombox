@@ -137,6 +137,11 @@ void setup() {
     Serial.begin(115200);
     vTaskDelay(pdMS_TO_TICKS(500));
 
+    // Downclock the CPU from the 240 MHz default to save power. WiFi and I2S
+    // still work fine at 160 MHz (WiFi clock is derived from the CPU clock).
+    setCpuFrequencyMhz(160);
+    Serial.printf("[setup] cpu freq: %u MHz\n", (unsigned)ESP.getCpuFreqMHz());
+
     Serial.println("[setup] display...");
     g_disp = createDisplay();
     Serial.printf("[setup] display ok (%dx%d), canvas...\n", g_disp->width(), g_disp->height());
