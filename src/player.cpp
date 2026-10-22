@@ -187,6 +187,10 @@ void MusicPlayer::toggleShuffle() {
     for (const auto& e : m_entries) if (!e.isDir) files++;
     if (files < 2) return; // nothing to shuffle
 
+    // capture the current track's name BEFORE reordering — m_current points
+    // into m_entries, which the shuffle below rewrites
+    String cur = (m_current < m_entries.size()) ? m_entries[m_current].name : "";
+
     m_origEntries = m_entries;
     // Fisher-Yates over the audio files only; folders keep their places
     std::vector<size_t> fpos;
@@ -203,7 +207,6 @@ void MusicPlayer::toggleShuffle() {
     for (size_t k = 0; k < fpos.size(); k++) m_entries[fpos[k]] = pool[k];
 
     // reindex the current track in the new order
-    String cur = (m_current < m_entries.size()) ? m_entries[m_current].name : "";
     size_t idx = 0;
     for (size_t i = 0; i < m_entries.size(); i++)
         if (!m_entries[i].isDir && m_entries[i].name == cur) { idx = i; break; }

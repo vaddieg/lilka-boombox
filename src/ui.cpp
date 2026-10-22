@@ -186,7 +186,9 @@ void PlayScreen::draw(MusicPlayer& pl) {
     if (pl.isPaused()) {
         font::text(m_buf, (W() - font::width("PAUSED", 2)) / 2, 110, "PAUSED", C_WARN, 2);
     } else if (!m_radio && pl.isShuffled()) {
-        font::text(m_buf, (W() - font::width("SHUFFLE", 2)) / 2, 110, "SHUFFLE", C_ACCENT, 2);
+        // small, on the time row just under the progress bar (the 2x version
+        // at y=110 collided with the spectrum bar peaks)
+        font::text(m_buf, (W() - font::width("SHUFFLE", 1)) / 2, 92, "SHUFFLE", C_ACCENT, 1);
     }
 
     // volume: 20 thin left-aligned stripes (volume changes in steps of 5, so one
