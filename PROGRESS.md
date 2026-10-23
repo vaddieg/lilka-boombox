@@ -7,7 +7,7 @@
 | 1 | Project skeleton + button/display test | ✅ done (HW verified, flicker fixed) |
 | 2 | SD card music mode (browse `/sd/music`, play/pause/prev/next, volume) | ✅ implemented — needs HW test |
 | 3 | Internet radio mode (WiFi + streaming stations) | ✅ implemented — needs HW test |
-| 4 | Main menu, polish (progress bar, battery, seek) | 🔄 menu done |
+| 4 | Main menu, polish (progress bar, battery, visualizers) | 🔄 menu, battery, visualizers done |
 
 ## Design decisions
 
@@ -238,6 +238,17 @@ Build: SUCCESS. (font sizes confirmed on device)
   while shuffled (PAUSED takes that line when paused); footer shows
   `C:shuffle` (user's wording: `X:shuffle`). Volume hint dropped from the
   footer to make room.
+- Indicator placement (v2): the original 2x-font "SHUFFLE" at y=110 was too
+  big and collided with the spectrum bar peaks (~y=134). Now scale 1, centered
+  at y=92 — the time row just under the progress bar; it's narrow enough to
+  fit between the position/duration times at the edges. PAUSED keeps its old
+  spot (y=110, 2x) and still suppresses the SHUFFLE indicator while paused.
+- **Title bug (fixed)**: enabling shuffle changed the displayed title to an
+  unrelated track while audio kept playing. Cause: the "reindex current track"
+  step read the name via `m_entries[m_current]` AFTER the in-place reorder, so
+  `m_current` already pointed at a different file. Fix: capture the current
+  name before shuffling, reindex to it after. (`restoreOrder()` was already
+  safe — it reads the name before restoring the order.)
 
 ### About screen (added)
 
@@ -282,3 +293,54 @@ Build: SUCCESS. (font sizes confirmed on device)
   else 0. Drawn only while STA-connected (WiFi is off in menu/SD mode — power
   saving, which reads as "0 bars" there); header text reserves the icon space.
   Connection log prints the measured RSSI: `[radio] wifi: ... rssi N dBm`.
+
+### Music visualizers (added, HW verified — colors correct)
+
+- `src/viz.h/.cpp` — visualizer framework. SELECT cycles modes in the play
+  screen (SD + radio; the FFT feeds both). The mode name flashes 1.5 s at the
+  top-left of the frame after a switch; the selection persists across tracks
+  and into radio mode. Footer hint: `S:viz`.
+- **All visualizers share one view frame** — the classic spectrum-bar rect
+  (x=39, 192x100, baseline y=H()-38), so switching never shifts the layout.
+- Modes:
+  - **BARS** — the classic 15 spectrum bars, colored per band (rainbow),
+    white peak-hold ticks.
+  - **WAVE** — mirrored filled wave across the frame, hue swept along x,
+    white crests, gentle time shimmer so quiet tracks aren't flat.
+  - **ORBIT** — slowly rotating rainbow spokes (length = band) around a
+    bass-pulsing core (outer ring colored by bass level, white center).
+  - **OFF** — dim 1 px baseline only.
+- **Update rate: 20 fps with real data.** The audio library's FFT stage emits
+  `evt_spectrum` every 50 ms (`timer_ms = 50` in Audio.cpp 4.0.0) and the
+  display values are internally smoothed per tick (attack 100 / release 20).
+  The UI was just sampling at 10 Hz — fix was only the play-screen redraw
+  period 100 ms -> 50 ms. A synthetic "halved intermediate frame" trick was
+  tried and REVERTED (felt weird); do not bring it back.
+- SELECT/START key hygiene (`main.cpp`): screens only consume the keys they
+  read; the main loop swallows START everywhere and SELECT outside play/radio,
+  so a stale justPressed can't fire an action after a mode switch.
+- **RGB565 packing gotcha (the big one, fixed):** our HSV/HSL-to-565
+  conversion packed green with `>> 3` (the 5-bit rule) — but green's 565
+  field is **6 bits** and needs `>> 2`. Result: every green came out at half
+  strength (03E0 = g125 instead of 07E0 = g255), yellow rendered as
+  amber/khaki ("no yellow at all"), green looked undersaturated, while
+  red/blue (true 5-bit fields) were fine. Correct packing:
+  `((r>>3)<<11) | ((g>>2)<<5) | (b>>3)`. Host-verified against reference
+  values: red F800, yellow FFE0, green 07E0, cyan 07FF, blue 001F.
+- Color choice: full rainbow sweep, hue 0..240 deg only (red -> yellow ->
+  green -> cyan -> blue; violet/magenta third dropped — and it puts band hues
+  every 16 deg), HSL s=1.0 l=0.5, packed via `rainbow(t)` in viz.cpp. The
+  `r8()` clamp guards float32 landing at 254.99998 for full channels.
+- **Display color-mode safety (added while debugging colors):** Arduino_GFX
+  ST7789 init tables (v1.6.0 through v1.6.9, upstream included) write
+  `COLMOD = 0x55` — an INVALID value (16-bit = 0x05, 18-bit = 0x06) — so the
+  panel keeps its factory-default mode after SWRESET. `ST7789Lilka::
+  force16bitColor()` now sends `COLMOD = 0x05` explicitly in
+  `createDisplay()`; no-op if already 16-bit, corrective if not. (Had the
+  panel been left in 18-bit mode, 16-bit writes would misread byte-wise:
+  yellow -> near-white, red -> magenta, blue -> dark green.)
+- **C_ACCENT is green, not cyan** (0x07E0 = (0,255,0); true cyan = 0x07FF).
+  The old "cyan" comment was wrong — the display always rendered it
+  correctly. Comment fixed in ui.h.
+- HW test: SELECT cycles BARS -> WAVE -> ORBIT -> OFF -> BARS with name
+  flash; 20 fps animation smooth; colors match reference values on device.

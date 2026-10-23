@@ -49,7 +49,7 @@ void Screen::footer(const String& text) {
 }
 
 void Screen::bar(int16_t x, int16_t y, int16_t w, int16_t h, float frac, uint16_t color) {
-    m_buf->fillRect(x, y, w, h, 0x162B);
+    m_buf->fillRect(x, y, w, h, C_VOL_OFF); // unlit/inactive gray, same as volume strips
     int16_t fw = (frac > 1.0f) ? w : (int16_t)(w * frac);
     if (fw > 0) m_buf->fillRect(x, y, fw, h, color);
 }
@@ -205,24 +205,18 @@ void PlayScreen::draw(MusicPlayer& pl) {
         m_buf->fillRect(volX, y, w, stH, c);
     }
 
-    // spectrum: 15 bars to the right of the volume stripes, sharing their baseline
-    const int16_t maxH = 100, barW = 10, gap = 3, x0 = 39;
+    // visualizer (SELECT cycles modes): all of them share the classic
+    // spectrum-bar view frame, so switching never shifts the layout
     uint8_t bands[MusicPlayer::SPECTRUM_BANDS] = {};
     uint8_t peaks[MusicPlayer::SPECTRUM_BANDS] = {};
     if (pl.isPlaying() && !pl.isPaused()) pl.getSpectrum(bands, peaks);
-    for (size_t b = 0; b < MusicPlayer::SPECTRUM_BANDS; b++) {
-        int16_t x = x0 + (int16_t)b * (barW + gap);
-        int16_t h = (int16_t)((uint32_t)bands[b] * maxH / 255);
-        if (h > 0) {
-            m_buf->fillRect(x, baseY - h, barW, h, C_ACCENT);
-        } else {
-            m_buf->fillRect(x, baseY - 1, barW, 1, 0x162B);
-        }
-        int16_t ph = (int16_t)((uint32_t)peaks[b] * maxH / 255);
-        if (ph > 0) m_buf->fillRect(x, baseY - ph, barW, 2, C_FG);
-    }
+    viz::Frame vf = viz::frameFor(W(), H());
+    viz::draw(m_buf, m_viz, bands, peaks, vf, millis());
+    if (millis() < m_vizFlashUntil)
+        font::text(m_buf, vf.x + 2, vf.y + 2, viz::name(m_viz), C_ACCENT);
 
-    footer(m_radio ? "A:pause < >:station B:exit" : "A:pause  < >:track  B:back C:shuffle");
+    footer(m_radio ? "A:pause < >:station B:exit S:viz"
+                   : "A:pause < >:track B:back C:shuffle S:viz");
 }
 
 Action PlayScreen::update(MusicPlayer& pl) {
@@ -233,6 +227,13 @@ Action PlayScreen::update(MusicPlayer& pl) {
     Buttons::State up = m_btns->get(Buttons::UP);
     Buttons::State down = m_btns->get(Buttons::DOWN);
     Buttons::State x = m_btns->get(Buttons::C); // physical "X" button (SDK key C)
+    Buttons::State sel = m_btns->get(Buttons::SELECT);
+
+    if (sel.justPressed) {
+        m_viz = viz::next(m_viz); // handled in-screen; name flashes briefly
+        m_vizFlashUntil = millis() + 1500;
+        m_dirty = true;
+    }
 
     Action action = Action::NONE;
     if (a.justPressed) action = Action::PLAY_PAUSE;
@@ -243,8 +244,11 @@ Action PlayScreen::update(MusicPlayer& pl) {
     else if (down.justPressed) action = Action::VOL_DOWN;
     else if (!m_radio && x.justPressed) action = Action::SHUFFLE;
 
-    // redraw on action, or periodically (fast while playing: spectrum + progress)
-    bool periodic = (millis() - m_lastDrawMs) >= (pl.isPlaying() && !pl.isPaused() ? 100 : 500);
+    // redraw on action, or periodically (fast while playing: spectrum + progress).
+    // 50 ms = 20 fps: the audio library emits evt_spectrum every 50 ms
+    // (timer_ms in Audio.cpp), so this is the true update rate — no need for
+    // synthetic intermediate frames.
+    bool periodic = (millis() - m_lastDrawMs) >= (pl.isPlaying() && !pl.isPaused() ? 50 : 500);
     if (m_dirty || action != Action::NONE || periodic) {
         draw(pl);
         m_buf->flush();
@@ -259,7 +263,7 @@ Action PlayScreen::update(MusicPlayer& pl) {
 void MenuScreen::draw() {
     static const char* const kItems[kItemCount] = {"MUSIC", "WEB RADIO", "ABOUT"};
     m_buf->fillScreen(C_BG);
-    header("LILKA BOOMBOX v0.1");
+    header("LILKA BOOMBOX v0.2");
     for (int i = 0; i < kItemCount; i++) {
         int16_t y = 64 + i * 48;
         if (i == m_cursor) m_buf->fillRect(0, y, W(), 28, C_SEL);

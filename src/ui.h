@@ -8,13 +8,14 @@
 #include "hw.h"
 #include "player.h"
 #include "font.h"
+#include "viz.h"
 
 // Colors (565)
 constexpr uint16_t C_BG       = 0x0000;
 constexpr uint16_t C_FG       = 0xFFFF;
-constexpr uint16_t C_ACCENT   = 0x07E0; // cyan
+constexpr uint16_t C_ACCENT   = 0x07FF; // cyan (0x07E0 is green!)
 constexpr uint16_t C_DIM      = 0x7BEF; // gray
-constexpr uint16_t C_SEL      = 0x07E0; // selection bar
+constexpr uint16_t C_SEL      = 0x07FF; // selection bar
 constexpr uint16_t C_SEL_TEXT = 0x0000;
 constexpr uint16_t C_WARN     = 0xFD20; // yellow-orange
 constexpr uint16_t C_GREEN    = 0x07E0;
@@ -94,6 +95,8 @@ private:
     void draw(MusicPlayer& pl);
     uint32_t m_lastDrawMs = 0;
     bool m_radio = false;
+    viz::Mode m_viz = viz::Mode::BARS; // SELECT cycles; kept across tracks
+    uint32_t m_vizFlashUntil = 0;      // name shown briefly after a switch
 };
 
 /// Main menu: "SD MUSIC" / "INTERNET RADIO" / "ABOUT".

@@ -315,5 +315,10 @@ void loop() {
         }
     }
 
+    // keys no screen reads (START) and SELECT outside play/radio: swallow so a
+    // stale justPressed can't fire an action right after a mode switch
+    g_btns.get(Buttons::START);
+    if (g_mode != Mode::PLAY && g_mode != Mode::RADIO) g_btns.get(Buttons::SELECT);
+
     vTaskDelay(pdMS_TO_TICKS(3));
 }

@@ -102,6 +102,17 @@ class ST7789Lilka : public Arduino_ST7789 {
 public:
     using Arduino_ST7789::Arduino_ST7789;
     void setSPIMode(uint8_t mode) { _override_datamode = mode; }
+    /// The library's ST7789 init tables (v1.6.0 .. v1.6.9, upstream included)
+    /// write COLMOD = 0x55, which is NOT a valid color mode (16-bit = 0x05,
+    /// 18-bit = 0x06), so after SWRESET the panel keeps its factory-default
+    /// mode. Force 16-bit RGB565 explicitly instead of relying on the default
+    /// (if the panel were left in 18-bit mode, 16-bit writes get misread
+    /// byte-wise: yellow -> near-white, red -> magenta, blue -> dark green).
+    void force16bitColor() {
+        _bus->beginWrite();
+        _bus->writeC8D8(0x3A, 0x05); // COLMOD = 16-bit color
+        _bus->endWrite();
+    }
 };
 
 /// Create the ST7789 display (80MHz, mode 3, rotation 3).
@@ -123,6 +134,7 @@ inline Arduino_GFX* createDisplay() {
                                 0, hw::DISP_OFFSET_Y, 0, hw::DISP_OFFSET_Y);
     disp->setSPIMode(SPI_MODE3);
     disp->begin(hw::DISP_SPI_HZ);
+    disp->force16bitColor();
     return disp;
 }
 
