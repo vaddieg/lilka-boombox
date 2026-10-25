@@ -1,0 +1,13 @@
+{
+  "name": "airplay-esp32",
+  "version": "1.0.0",
+  "description": "Vendored AirPlay 2 receiver from github.com/rbouteiller/airplay-esp32 (Non-Commercial License). IDF components reorganized as an Arduino/PlatformIO library; Kconfig replaced by src/airplay_config.h (force-included). main.c / app_main NOT included \u2014 the handoff is driven from src/main.cpp.",
+  "keywords": "airplay",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "flags": [
+      "-std=gnu17"
+    ]
+  }
+}

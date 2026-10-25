@@ -1,0 +1,14 @@
+{
+  "name": "esp_audio_codec",
+  "version": "2.5.0",
+  "description": "Vendored from Espressif component registry (espressif/esp_audio_codec 2.5.0). Registry C sources + prebuilt esp32s3 decoder archive.",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "includeDir": "include",
+    "lib": [
+      "lib/libesp_audio_codec.a",
+      "lib/libesp_audio_simple_dec.a"
+    ]
+  }
+}
