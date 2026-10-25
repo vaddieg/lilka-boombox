@@ -295,6 +295,13 @@ Build: SUCCESS. (font sizes confirmed on device)
   saving, which reads as "0 bars" there); header text reserves the icon space.
   Connection log prints the measured RSSI: `[radio] wifi: ... rssi N dBm`.
 
+### Hold-to-seek in music mode (added)
+Tap L/R = prev/next track (now fired on RELEASE, not press); hold L/R ≥400 ms
+= seek in 5 s steps every 400 ms while held (`MusicPlayer::seekBy` →
+`aud.setTimeOffset(±5)`, which clamps to 0..duration and stops the song at
+either end). Radio mode keeps pure station switching (no seek). Progress bar
+redraws while seeking (`m_dirty` in PlayScreen::update).
+
 ### Music visualizers (added, HW verified — colors correct)
 
 - `src/viz.h/.cpp` — visualizer framework. SELECT cycles modes in the play

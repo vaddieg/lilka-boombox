@@ -235,14 +235,44 @@ Action PlayScreen::update(MusicPlayer& pl) {
         m_dirty = true;
     }
 
+    // L/R: hold-to-seek. A press becomes a "seek" once held kSeekHoldMs;
+    // until then it's still a tap and fires prev/next ON RELEASE, so a hold
+    // never skips the track first. Seeking steps every kSeekStepMs while
+    // held. In radio mode L/R always stays station switching (no seek).
+    static constexpr uint32_t kSeekHoldMs = 400;
+    static constexpr uint32_t kSeekStepMs = 400;
+    auto updateSeek = [&](Buttons::State s, SeekKey& k, int dir) -> bool {
+        if (s.pressed) {
+            if (!k.downAt) { k.downAt = millis(); k.seeking = false; }
+            if (!m_radio && !k.seeking && millis() - k.downAt >= kSeekHoldMs) {
+                k.seeking = true;
+                k.lastStepMs = millis();
+                pl.seekBy(5 * dir);
+            }
+            if (k.seeking && millis() - k.lastStepMs >= kSeekStepMs) {
+                k.lastStepMs = millis();
+                pl.seekBy(5 * dir);
+            }
+        } else {
+            bool wasTap = k.downAt && !k.seeking;
+            k.downAt = 0;
+            k.seeking = false;
+            return wasTap;
+        }
+        return false;
+    };
+    bool tapLeft = updateSeek(left, m_left, -1);  // -1 = LEFT/rewind
+    bool tapRight = updateSeek(right, m_right, +1); // +1 = RIGHT/forward
+
     Action action = Action::NONE;
     if (a.justPressed) action = Action::PLAY_PAUSE;
     else if (b.justPressed) action = Action::STOP;
-    else if (left.justPressed) action = Action::PREV;
-    else if (right.justPressed) action = Action::NEXT;
+    else if (tapLeft) action = Action::PREV;
+    else if (tapRight) action = Action::NEXT;
     else if (up.justPressed) action = Action::VOL_UP;
     else if (down.justPressed) action = Action::VOL_DOWN;
     else if (!m_radio && x.justPressed) action = Action::SHUFFLE;
+    if (m_left.seeking || m_right.seeking) m_dirty = true; // progress bar moves
 
     // redraw on action, or periodically (fast while playing: spectrum + progress).
     // 50 ms = 20 fps: the audio library emits evt_spectrum every 50 ms
@@ -263,7 +293,7 @@ Action PlayScreen::update(MusicPlayer& pl) {
 void MenuScreen::draw() {
     static const char* const kItems[kItemCount] = {"MUSIC", "WEB RADIO", "AIRPLAY", "ABOUT"};
     m_buf->fillScreen(C_BG);
-    header("LILKA BOOMBOX v0.2");
+    header("LILKA BOOMBOX v0.3");
     for (int i = 0; i < kItemCount; i++) {
         // 40 px pitch (28 px row + 12 gap): 4 items fit 39..187 above the footer
         int16_t y = 39 + i * 40;

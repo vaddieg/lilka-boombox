@@ -40,6 +40,9 @@ public:
 
     bool nextTrack();
     bool prevTrack();
+    /// Seek +/- sec within the current track (music mode only; the audio
+    /// library clamps to 0..duration and stops at either end).
+    void seekBy(int sec);
     /// Shuffle toggle: randomly reorders the current folder's files among
     /// themselves (folders keep their place); pressing again restores the
     /// original sorted order. The current track stays selected.

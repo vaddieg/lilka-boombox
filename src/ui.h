@@ -97,6 +97,11 @@ private:
     bool m_radio = false;
     viz::Mode m_viz = viz::Mode::BARS; // SELECT cycles; kept across tracks
     uint32_t m_vizFlashUntil = 0;      // name shown briefly after a switch
+
+    // L/R: tap = prev/next (fired on release if never held long enough);
+    // hold = seek in 5 s steps (music mode only).
+    struct SeekKey { uint32_t downAt = 0; bool seeking = false; uint32_t lastStepMs = 0; };
+    SeekKey m_left, m_right;
 };
 
 /// Main menu: "SD MUSIC" / "INTERNET RADIO" / "ABOUT".

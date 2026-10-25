@@ -168,6 +168,10 @@ bool MusicPlayer::playAtOffset(int delta) {
 bool MusicPlayer::nextTrack() { return playAtOffset(+1); }
 bool MusicPlayer::prevTrack() { return playAtOffset(-1); }
 
+void MusicPlayer::seekBy(int sec) {
+    if (m_audioOn && m_playing && !m_paused) aud.setTimeOffset(sec);
+}
+
 void MusicPlayer::restoreOrder() {
     if (!m_shuffled) return;
     String cur = (m_current < m_entries.size()) ? m_entries[m_current].name : "";
