@@ -103,7 +103,7 @@ private:
 class MenuScreen : public Screen {
 public:
     using Screen::Screen;
-    static constexpr int kItemCount = 3;
+    static constexpr int kItemCount = 4; // MUSIC / WEB RADIO / AIRPLAY / ABOUT
     void reset() { m_cursor = 0; m_selected = 0; m_dirty = true; }
     /// Index of the item under the cursor (valid after an ENTER action).
     int selected() const { return m_selected; }

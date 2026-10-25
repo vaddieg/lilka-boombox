@@ -7,7 +7,8 @@
 | 1 | Project skeleton + button/display test | ✅ done (HW verified, flicker fixed) |
 | 2 | SD card music mode (browse `/sd/music`, play/pause/prev/next, volume) | ✅ implemented — needs HW test |
 | 3 | Internet radio mode (WiFi + streaming stations) | ✅ implemented — needs HW test |
-| 4 | Main menu, polish (progress bar, battery, visualizers) | 🔄 menu, battery, visualizers done |
+| 4 | Main menu, polish (progress bar, battery, visualizers) | ✅ done |
+| 5 | AirPlay 2 speaker mode (vendored airplay-esp32 in the same firmware) | 🔄 handoff v1 done — needs HW test |
 
 ## Design decisions
 
@@ -342,5 +343,264 @@ Build: SUCCESS. (font sizes confirmed on device)
 - **C_ACCENT is green, not cyan** (0x07E0 = (0,255,0); true cyan = 0x07FF).
   The old "cyan" comment was wrong — the display always rendered it
   correctly. Comment fixed in ui.h.
+
+### AirPlay 2 mode (stage 5 — spike done, HW test + handoff pending)
+
+**Decision: AirPlay, not Bluetooth.** Our chip is ESP32-S3-WROOM-1-**N16R8**
+(standard S3, BLE 5.0 only, no BR/EDR radio): classic A2DP impossible,
+LE Audio impossible (needs BLE 5.2/CIS). AirPlay 2 over Wi-Fi is the only
+OS-level "phone music → box" path. Chosen implementation: **rbouteiller/
+airplay-esp32** (AirPlay 2, ALAC+AAC, LVGL display, ~610★) — Non-Commercial
+license, which is fine: Lilka is a non-commercial/educational product.
+
+**Architecture (agreed with user):** one firmware, two worlds.
+- Menu → **AIRPLAY**: stop player, `i2s_del_channel` (needs a 1-line vendor
+  patch to expose `Audio::m_i2s_tx_handle` — `I2Sstop()` only disables the
+  channel, port stays allocated), `WiFi.disconnect(true)`, spawn
+  `airplay_task` (their RTSP/HAP/I2S/LVGL/buttons), then **park the Arduino
+  loop**: `loopTask` blocks on `xSemaphoreTake(g_loopResume, portMAX_DELAY)`.
+  "Quitting Arduino" = parking a priority-1 FreeRTOS task; the whole IDF
+  world (heap/wifi driver/NVS/SPI2) keeps running.
+- **Quit AirPlay → v1: `esp_restart()`** (erase an NVS flag first → boots
+  straight into AirPlay mode). In-place teardown (their code has no symmetric
+  stop paths) is a later improvement.
+- I2S pins: BCLK=42, WS=1, DOUT=2, **MCLK unused** (our DAC runs from its
+  internal crystal; matches their `CONFIG_I2S_SCK_IO=-1` default).
+- Display: their `display_st7789.c` (esp_lcd + LVGL 9) — NOT our Arduino_GFX
+  UI. Panel config: 240×280, GAP_Y=20, rotation TBD, SPI CLK=12/MOSI=15/
+  CS=10/DC=9/RST=13/BL=14. Their layout constants assume landscape —
+  portrait layout is a TODO.
+- Buttons: their `buttons.c` → A=play/pause, C/D=vol, UP/DOWN=track, B=quit.
+
+**Vendoring layout** (all local libs, no registry deps — LDF/registry can't
+find the Espressif components): 
+- `lib/airplay-esp32/src/` — their main/{rtsp,hap,plist,audio,network,
+  playback_control,settings,led,dacp_client,bt_coex,buttons,alac_magic_cookie}
+  + board_utils (weak defaults) + display/display_st7789.c + audio-resampler
+  + dac driver headers. `airplay_config.h` = Kconfig replacement (force
+  included per-TU via `#include` as first line of every vendored .c — per-lib
+  `-include` flags in library.json leak into the LINKER command and break
+  linking). `lv_conf.h` = LVGL config, found via `-DLV_CONF_INCLUDE_SIMPLE`.
+- `lib/esp_audio_codec/` — registry component 2.5.0: 3 registry .c files +
+  **prebuilt esp32s3 .a** (libesp_audio_codec.a + libesp_audio_simple_dec.a)
+  + include tree (6 include roots — see platformio.ini -I list).
+- LVGL stack REMOVED (display deferred): `lib/esp_lvgl_port/`, `lib/lvgl/`,
+  `display/display_st7789.c`, `display_inc/airplay_display.h`, `lv_conf.h`
+  all deleted; `-DLV_CONF_INCLUDE_SIMPLE` + port -I flags dropped from
+  platformio.ini. NOTE: `lib/lvgl` was a broken stub (srcDir pointed at a
+  nonexistent dir) — LDF silently fell back to the REGISTRY and downloaded
+  a 98 MB full lvgl checkout into `.pio/libdeps/v2/`. Removing the lib_deps
+  refs stops that. Zero `lv_*` symbols in firmware.elf now. To revive the
+  display: re-vendor esp_lvgl_port 2.3.3 + a real lvgl 9.4 (registry name
+  collision is fine once the local lib is valid) + the upstream
+  display_st7789.c, and give AirPlay its own SPI bus at boot (see
+  "AirPlay display — deferred").
+
+**Gotchas hit (so they are never re-hit):**
+- **LDF scans `lib/` only ONE level deep** — `lib/ext/foo` is invisible;
+  libs must sit at `lib/foo`.
+- LDF chain mode: project libs must be listed in `lib_deps` by name.
+- `library.json` `build.includeDir` must be a STRING (a list crashes
+  piolib.py with a bare traceback); extra include roots go into global
+  `build_flags -I`.
+- **Kconfig vs preprocessor semantics (the big one)**: upstream guards use
+  `#ifdef`/`defined()`, where *absent macro = disabled*. Defining an option
+  as `0` makes `#ifdef` TRUE. All `#ifdef/#if defined(CONFIG_X)` guards in
+  the vendored code were converted to `#if CONFIG_X` (undefined → 0 in `#if`),
+  and airplay_config.h defines every option (0/1). GPIO pins use -1 for
+  "not connected" (`#if PIN >= 0` checks).
+- LVGL 9.4: `LV_FONT_MONTSERRAT_x` macros expand to *font object names* —
+  never use them as `LV_FONT_DEFAULT`; `LV_CONF_SKIP` makes LVGL ignore the
+  conf file entirely.
+- Their `audio-resampler` component and `dac_*` driver headers are separate
+  components upstream — copied flat into airplay-esp32/src.
+- `a2dp_sink.c` / `audio_output_{usb,spdif}.c` are `#if CONFIG_*`-guarded to
+  empty (Bluedroid/UAC headers don't exist in the S3 core).
+- Core prebuilts already contain: mbedtls/mbedcrypto (AES-CTR, RSA, bignum,
+  drbg — verified with nm), libsodium (SRP), mdns, esp_http_server, esp_lcd
+  (incl. esp_lcd_new_panel_st7789). NOT contained: bluedroid A2DP, UAC.
+- lwIP/wifi/mbedTLS *sdkconfig knobs* (socket count, UDP recvmbox, PSRAM
+  malloc policy, default RSA allocator) are baked into the prebuilt core
+  libs and CANNOT be changed — if we hit socket/UDP limits in HW testing
+  (their defaults want LWIP_MAX_SOCKETS=16, UDP_RECVMBOX=64), that's the
+  suspect; fallbacks: drop the web server / PTP, tune audio_buffer sizes.
+
+**State**: full build green (spike28). The vendored objects are not yet in
+firmware.elf (linker drops unreferenced library members) — they pull in
+when the handoff code references them.
+
+**Implemented (handoff v1, builds green)**:
+- Menu item **AIRPLAY** (4th, 40 px pitch) → `startAirPlayMode()`:
+  stop player → `i2sRelease()` (vendor-patched `Audio::I2SstopPublic()` +
+  `i2s_del_channel(aud.i2sTxHandle())` — 2-line patch in
+  `.pio/libdeps/v2/ESP32-audioI2S/src/Audio.h`) → `wifiOff()` → set boot
+  flag → spawn `airplay_task` (prio 3, core 0, 8 KB) → loop parks on
+  `vTaskDelay(portMAX_DELAY)`.
+- `airplay_task` init order (from their main.c): settings →
+  playback_control → led (no-op) → display (their ST7789/LVGL, own SPI2
+  bus — SD idle in this mode) → their wifi (STA + captive AP + web UI on
+  :80) → on connect: hap → audio_receiver → audio_output → mdns →
+  rtsp_server → buttons. **No PTP/NTP in v1** (no multi-room; PTP clock
+  init failure would disable AirPlay, so it's skipped, not failed).
+- Keys in AirPlay: A=play/pause, C/D=vol, RIGHT/LEFT=next/prev (their
+  buttons.c). **B (GPIO 6) held 2 s = quit** → erase flag + `esp_restart()`.
+- Boot-into-AirPlay is two-stage NVS (`boot_airplay` + `ap_enter`): stage 1
+  clean-reboots (Arduino_GFX would otherwise still own SPI2), stage 2
+  takes over before anything initializes. Quit erases the flag → menu.
+- Headers: all vendored headers got `extern "C"` guards (they only ever
+  compiled as C upstream); `wifi.h`/`display.h` renamed to
+  `airplay_wifi.h`/`airplay_display.h` (name collision with the Arduino
+  core's wifi.h via the flat -I list).
+- Link: LDF puts lib objects BEFORE src/*.o on the link line →
+  `-Wl,--start-group`/`--end-group` in build_flags; prebuilt decoder .a
+  linked via `-L ... -Wl,--whole-archive -lesp_audio_codec` (library.json
+  `build.lib` only takes lib *names*, not file paths).
+
+**Buttons + volume in AirPlay mode (HW-verified).** Two gotchas:
+1. **Their interrupt-driven `buttons.c` never fired after the in-place
+   handoff** (only our polled B key worked; cause not chased — Arduino
+   core / prebuilt-core GPIO ISR service state). Solution: poll the Lilka
+   keypad ourselves in `airplay_task` (50 ms tick, 2-tick debounce, 200 ms
+   volume auto-repeat). Mapping: **A=play/pause, UP=vol+, DOWN=vol-,
+   RIGHT=next, LEFT=prev, B(hold 2s)=quit**.
+2. **`playback_control_set_source(PLAYBACK_SOURCE_AIRPLAY)` is mandatory**
+   (upstream `main.c:78` does it at boot). Without it every
+   `playback_control_*` call (volume/next/prev/play-pause) hits the
+   `PLAYBACK_SOURCE_NONE` branch and silently no-ops — buttons register
+   fine but do nothing. Added to `airplay_task` after
+   `playback_control_init()`.
+
+**STATUS: AirPlay audio WORKS (HW-verified: iPhone smooth, Mac plays with
+rare cracks).** Root cause of the long "connects but silent" saga:
+
+**The stale-start-island skipper in `audio_timing.c` starved playout
+forever on lossy Wi-Fi.** Before playout starts, `audio_timing_read()`
+silently *consumed* (take+return, no counter, only a suppressed ESP_LOGI)
+any frame sitting >100 ms below the contiguous run ending at the newest
+buffered frame — meant to skip a ~100 ms stale "island" left at stream
+start. But with a 2 s pre-buffer on a lossy link, every UDP loss
+re-creates an island below the run, and the skipper ate frames (and the
+held pending frame) faster than the buffer head could reach the run —
+audio never started. Symptom fingerprint: `dec` climbs, `buf` stays in
+the teens, `started=0`, `playing=1`, `out_underrun` flat, no sound.
+Aggravating factor: the Mac re-sends SETRATEANCHORTIME every few seconds;
+in the no-PTP fallback `audio_timing_set_anchor()` pins
+`anchor_local_time_ns = now` and resets `consecutive_early_frames`, so the
+stuck-anchor safety valve (needs 50 consecutive early frames) could never
+fire. Fix: cap cumulative island skips per start episode at 500 ms
+(`lilka_island_skip_total`, reset in `audio_timing_reset()`) — keeps the
+anti-blip protection (observed island: 14 frames ≈ 112 ms), guarantees
+playout starts. Verified: disabling the skipper entirely → audio plays;
+capped version restored.
+
+Debugging tools added (lilka): `adx_debug.{h,c}` per-branch drop counters;
+`[tng]`/`[adx]`/`[airplay] audio:` diagnostic loop in `airplay_mode.cpp`
+(5×5 s: rx/dec/drop, playing, has_data, timing state + anchor);
+`audio_receiver_timing_state()`/`audio_receiver_buffered_frames()`
+accessors. NOTE: the prebuilt log library swallows the vendored code's
+ESP_LOG output (runtime `esp_log_level_set` has no effect) — rely on the
+Serial diagnostics, not their logs.
+
+**HW test round 8 — "Lilka not in AirPlay list" root cause: the
+`mdns_airplay_init()` call had been accidentally deleted during the
+instrumentation rewrite (it's declared `void`, so it vanished with its
+"error check"). No mDNS → no advertisement. Restored + verified by
+disassembling airplay_task in firmware.elf. (The IP check
+`[airplay] STA WIFI_STA_DEF ip=...` confirmed LAN/DHCP were fine all
+along; the `mdns_service_exists` probe crashed on the never-created
+service mutex, which is what exposed it.)
+
+**HW test rounds 5-7 — display pursuit abandoned (v1). Decision: AirPlay mode
+does NOT touch the display; the screen shows a static Arduino-drawn page
+("AIRPLAY / Lilka is an AirPlay speaker / hold B to quit" — message() with
+holdMs=0 before parking). Why the display fight lost:
+- The SPI2 host is owned by the Arduino HAL (raw registers, esp32-hal-spi.c);
+  the IDF spi_master driver only half-exists for that host.
+- Prebuilt libesp_driver_spi.a quirks: lazy-init (no spi_bus_initialize)
+  leaves SCK/MOSI unmuxed (panel gets nothing); out-of-range polling
+  transfers (>64 B FIFO) crash the driver instead of erroring (LoadProhibited
+  in xQueueReceive — ret_queue garbage); a 4096 B DMA transfer in the probe
+  crashed identically (suspect: private DMA bounce handling).
+- One DMA-stack bug of OURS was found and fixed along the way: probe sent
+  tx_buffer pointing at a stack param — SPI DMAs asynchronously, address
+  dangles. (Their esp_lcd code is safe: params are copied into its static
+  trans pool.)
+- Display facts gathered (for a future attempt, probably via a dedicated
+  display partition/driver swap, not bus sharing): panel is 280x240 logical
+  (rotation 3); working window CASET 20..299 / RASET 0..239; MADCTL 0xA0
+  (MY|MV, ST7789V bits MY=0x80/MX=0x40/MV=0x20; RGB bit 0 — BGR data order);
+  SPI mode 3 required; SWRESET via command works (screen went black).
+- Audio: the state that WORKED was round 3 (cracking at 160 MHz). Round 5
+  (240 MHz + spi_bus_initialize + probe) had NO audio — unexplained; the
+  display stripping also removes those two variables. Current build =
+  round-3 conditions + 240 MHz + clean i2sRelease (stop=OK del=OK).
+
+**HW test round 4 — AirPlay connects (no more cracking at 240 MHz); panel shows
+the LAST ARDUINO FRAME — i.e. zero IDF-side transactions reach the panel
+(even SWRESET didn't latch).**
+Root cause: Arduino's SPIClass drives SPI2 via RAW HAL (esp32-hal-spi.c) — no
+IDF spi_master bus context ever exists for the host. The IDF driver's
+lazy-init (from esp_lcd's spi_bus_add_device) leaves the bus with NO pin
+config → SCK/MOSI never muxed to the peripheral → transactions go to the
+void. Fix: `g_dispBusHandoff()` now explicitly calls
+`spi_bus_initialize(SPI2_HOST, {mosi=17, sclk=18, miso=-1, max_transfer_sz=32K},
+SPI_DMA_CH_AUTO)` before display_init (Arduino side is parked; quit reboots).
+Geometry (MADCTL 0xA0 = MY|MV per the library's ST7789V bit layout RGB=0x00,
+280×240 logical, window CASET 20..299 / RASET 0..239) is set but NOT yet
+verified — defer geometry tweaking until pixels actually flow.
+
+**HW test round 3 — AirPlay connects (audio works, cracking); still no UI.**
+- Cracking → fixed: AirPlay task now runs at 240 MHz (Arduino side downclocks to
+  160 for battery; decode+I2S DMA+WiFi needs the full clock).
+- No UI → geometry fix: esp_lcd maps x→CASET, y→RASET. The working
+  Arduino_GFX config (rotation 3, offsets 0/20/0/20) yields window
+  **CASET 20..259, RASET 0..279, MADCTL MY|MV|RGB** → so `set_gap(20, 0)`,
+  not the upstream board's `(0, 20)`. (The upstream Waveshare 240×240
+  panel has its offset on the RASET axis; ours is on the CASET axis.)
+- Note: our UI side uses INVOFF (Arduino_GFX default `_ips=false`); their
+  init sends INVON — if the UI appears with inverted colors, flip
+  `esp_lcd_panel_invert_color(panel_handle, false)`.
+- SPI mode 3 kept (user questioned it, but the whole Arduino UI only works in
+  mode 3 — Lilka SDK forces it too; upstream board's mode 0 is for a
+  different panel).
+
+**HW test round 2 — Mac SEES the AirPlay device (RTSP+mDNS+WiFi all work); no UI on panel.**
+Also: user wants NO reboot handoff (firmware always boots Arduino; AirPlay =
+in-place teardown). Both addressed:**
+1. Handoff is now fully in-place: menu → stop player → i2sRelease (NULL-guarded,
+   was crashing when never started) → wifiOff (core does esp_wifi_stop +
+   esp_wifi_deinit + netif destroy, verified in WiFiGeneric.cpp) → spawn
+   airplay_task → park loop. Boot flags removed (stale ones erased in setup).
+   Quit = esp_restart() back into Arduino mode.
+2. Display root cause candidates (patched, awaiting HW test):
+   a. **SPI mode**: their esp_lcd io used `spi_mode = 0`; the Lilka panel
+      requires SPI_MODE3 (Lilka SDK forces it) → init commands never latched.
+   b. **MADCTL**: they set MX|MV|RGB (0x25); our working orientation is
+      MY|MV|RGB (0x61, Arduino_GFX rotation 3) → now
+      `swap_xy(true) + mirror(false, true)`.
+   Gap (CASET 0, RASET 20) was already correct for the 240×320 glass.
+
+**First HW test round 1 — "stuck on message screen, no device visible" — root causes found & fixed**:
+1. Display pins in `airplay_config.h` were guessed (12/15/10/9/13) — the real
+   panel is SCK=18, MOSI=17, CS=7, DC=15 (RST unused). Valid-but-wrong GPIOs
+   fail no checks, so the driver "worked" into the void. Fixed.
+2. SPI handoff: the prebuilt SPI driver has no `spi_bus_deinit` (stripped),
+   and our display owns SPI2_HOST for the boot. Their `display_init(bus)`
+   accepts a pre-initialized host as an opaque pointer → we pass
+   `(void*)(intptr_t)SPI2_HOST`; they add their esp_lcd device on the same
+   bus/pins (Arduino side is idle the whole time).
+3. WiFi: first run had no creds in their NVS (namespace "airplay") → captive
+   AP only → invisible to AirPlay. Now the handoff bridges our saved creds
+   (NVS "network": last_ssid + <djb2(ssid)>_pw) via
+   `settings_set_wifi_credentials()` when theirs are empty.
+
+**TODO before/after first HW test**:
+- Portrait layout pass over their LVGL screen (GAP_Y=20; rotation 3 —
+  their driver has no rotation yet, check their `lvgl_port_set_orientation`
+  or add esp_lcd_panel_swap_xy/mirror_x).
+- HW test: pairing from iPhone, stream, dropouts; watch lwIP socket
+  budget (web server + RTSP + mDNS on prebuilt lwIP defaults).
+- If captive-AP first-run is annoying: bridge our saved wifi creds into
+  their settings (their keys vs our "lilka" namespace).
 - HW test: SELECT cycles BARS -> WAVE -> ORBIT -> OFF -> BARS with name
   flash; 20 fps animation smooth; colors match reference values on device.

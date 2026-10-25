@@ -46,6 +46,9 @@ public:
     void toggleShuffle();
     bool isShuffled() const { return m_shuffled; }
     void stop();
+    /// Fully release the I2S peripheral (disable + delete channel) so the
+    /// AirPlay stack can own it. The next begin()+setPinout() recreates it.
+    bool i2sRelease();
     void togglePause();
 
     bool isPlaying() const { return m_playing; }
@@ -140,3 +143,7 @@ private:
     std::mutex m_spectMux; // audio task writes, main loop reads
     static MusicPlayer* s_self; // for the static audio event callback
 };
+
+/// Defined in main.cpp — the singleton player (anon-namespace workaround for
+/// airplay_mode.cpp, which can't see the global directly).
+MusicPlayer& playerRef();

@@ -214,6 +214,21 @@ void MusicPlayer::toggleShuffle() {
     m_shuffled = true;
 }
 
+bool MusicPlayer::i2sRelease() {
+    if (!m_audioOn) return true;
+    // ESP32-audioI2S exposes no teardown (I2Sstop() only disables the TX
+    // channel, leaving I2S_NUM_0 allocated). Delete it so the AirPlay stack
+    // can create its own channel on the same port. begin()+setPinout()
+    // recreates everything on the way back.
+    esp_err_t e1 = aud.I2SstopPublic();
+    i2s_chan_handle_t h = aud.i2sTxHandle();
+    if (h == nullptr) return true; // never started
+    esp_err_t e2 = i2s_del_channel(h);
+    Serial.printf("[player] i2sRelease: stop=%s del=%s\n",
+                  esp_err_to_name(e1), esp_err_to_name(e2));
+    return e2 == ESP_OK;
+}
+
 void MusicPlayer::stop() {
     if (m_audioOn) aud.stopSong();
     m_playing = false;

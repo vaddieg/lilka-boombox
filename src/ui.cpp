@@ -261,11 +261,12 @@ Action PlayScreen::update(MusicPlayer& pl) {
 // ---------------------------------------------------------------- Menu
 
 void MenuScreen::draw() {
-    static const char* const kItems[kItemCount] = {"MUSIC", "WEB RADIO", "ABOUT"};
+    static const char* const kItems[kItemCount] = {"MUSIC", "WEB RADIO", "AIRPLAY", "ABOUT"};
     m_buf->fillScreen(C_BG);
     header("LILKA BOOMBOX v0.2");
     for (int i = 0; i < kItemCount; i++) {
-        int16_t y = 64 + i * 48;
+        // 40 px pitch (28 px row + 12 gap): 4 items fit 39..187 above the footer
+        int16_t y = 39 + i * 40;
         if (i == m_cursor) m_buf->fillRect(0, y, W(), 28, C_SEL);
         font::text(m_buf, 10, y + 8, kItems[i], i == m_cursor ? C_SEL_TEXT : C_FG, 2);
     }
@@ -315,9 +316,10 @@ void AboutScreen::draw() {
         {110, "name=filename, url=1st line", C_DIM},
         {130, "CREDITS", C_ACCENT},
         {148, "schreibfaul1/ESP32-audioI2S", C_DIM},
-        {164, "Arduino_GFX, olikraus/U8g2 fonts", C_DIM},
-        {180, "Lilka-dev community, Arduino", C_DIM},
-        {198, "By github/vaddieg & qween", C_ACCENT},
+        {164, "rbouteiller/airplay-esp32", C_DIM},
+        {180, "Arduino_GFX, olikraus/U8g2 fonts", C_DIM},
+        {196, "Lilka-dev community, Arduino", C_DIM},
+        {212, "By github/vaddieg & qween", C_ACCENT},
     };
     m_buf->fillScreen(C_BG);
     header("ABOUT");

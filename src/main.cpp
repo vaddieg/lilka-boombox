@@ -22,6 +22,7 @@
 #include "ui.h"
 #include "font.h"
 #include "battery.h"
+#include "airplay_mode.h"
 
 // "Guest" OTA mode: mark the app as valid so the ESP-IDF auto-rollback mechanism
 // never reverts the boot slot (we are not the primary/OS firmware).
@@ -34,7 +35,7 @@ constexpr const char* kRoot = "/music";
 Arduino_GFX* g_disp = nullptr;
 Arduino_Canvas* g_buf = nullptr;
 Buttons g_btns;
-MusicPlayer g_player;
+MusicPlayer g_player;  // exported for airplay_mode.cpp
 MenuScreen* g_menu = nullptr;
 BrowserScreen* g_browser = nullptr;
 PlayScreen* g_play = nullptr;
@@ -133,9 +134,18 @@ void exitRadio() {
 
 } // namespace
 
+/// Accessor for airplay_mode.cpp (g_player lives in the anon namespace).
+MusicPlayer& playerRef() { return g_player; }
+
 void setup() {
     Serial.begin(115200);
     vTaskDelay(pdMS_TO_TICKS(500));
+
+    // AirPlay is entered in-place from the menu (no reboot): the firmware
+    // always starts in Arduino mode. Erase stale handoff flags from the
+    // previous (reboot-based) firmware version.
+    setAirplayBootFlag(false);
+    setAirplayEnterFlag(false);
 
     // Downclock the CPU from the 240 MHz default to save power. WiFi and I2S
     // still work fine at 160 MHz (WiFi clock is derived from the CPU clock).
@@ -230,6 +240,12 @@ void loop() {
                 toBrowser();
             } else if (sel == 1) {
                 enterRadio();
+            } else if (sel == 2) {
+                Serial.println("[nav] airplay");
+                // holdMs=0: this page stays up for the whole AirPlay session
+                // (the loop parks right after; the screen is not LVGL-driven).
+                message("AIRPLAY", "Lilka is an AirPlay speaker\nhold B to quit", 0);
+                startAirPlayMode(); // never returns
             } else {
                 Serial.println("[nav] about");
                 toAbout();
