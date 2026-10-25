@@ -381,8 +381,13 @@ find the Espressif components):
   included per-TU via `#include` as first line of every vendored .c — per-lib
   `-include` flags in library.json leak into the LINKER command and break
   linking). `lv_conf.h` = LVGL config, found via `-DLV_CONF_INCLUDE_SIMPLE`.
-- `lib/esp_audio_codec/` — registry component 2.5.0: 3 registry .c files +
-  **prebuilt esp32s3 .a** (libesp_audio_codec.a + libesp_audio_simple_dec.a)
+- `lib/esp_audio_codec/` — registry component 2.5.0: headers +
+  **prebuilt esp32s3 .a** (libesp_audio_codec.a + libesp_audio_simple_dec.a).
+  The .a files are the asset: the Espressif registry ships *source only* and
+  pioarduino has no IDF component build system, so the prebuilt archives
+  must stay vendored. The 3 registration .c wrappers were dropped (dead:
+  airplay code calls esp_alac_dec/esp_aac_dec directly, and their
+  CONFIG_AUDIO_DECODER_* guards aren't defined here).
   + include tree (6 include roots — see platformio.ini -I list).
 - LVGL stack REMOVED (display deferred): `lib/esp_lvgl_port/`, `lib/lvgl/`,
   `display/display_st7789.c`, `display_inc/airplay_display.h`, `lv_conf.h`
