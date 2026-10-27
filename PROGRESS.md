@@ -443,9 +443,9 @@ when the handoff code references them.
 
 **Implemented (handoff v1, builds green)**:
 - Menu item **AIRPLAY** (4th, 40 px pitch) → `startAirPlayMode()`:
-  stop player → `i2sRelease()` (vendor-patched `Audio::I2SstopPublic()` +
-  `i2s_del_channel(aud.i2sTxHandle())` — 2-line patch in
-  `.pio/libdeps/v2/ESP32-audioI2S/src/Audio.h`) → `wifiOff()` → set boot
+  stop player → `i2sRelease()` (accesses `Audio::I2Sstop()` +
+  `aud.m_i2s_tx_handle` via C++ template member-pointer loophole without
+  modifying upstream `Audio.h`) → `wifiOff()` → set boot
   flag → spawn `airplay_task` (prio 3, core 0, 8 KB) → loop parks on
   `vTaskDelay(portMAX_DELAY)`.
 - `airplay_task` init order (from their main.c): settings →

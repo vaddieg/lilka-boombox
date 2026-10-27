@@ -153,7 +153,7 @@ void PlayScreen::draw(MusicPlayer& pl) {
     size_t n = 0;
     l1[0] = 0;
     while (*p) {
-        size_t len = (*p < 0x80) ? 1 : ((*p < 0xE0) ? 2 : 3);
+        size_t len = font::charLen(p);
         if (n + len >= sizeof(l1)) break;
         memcpy(l1 + n, p, len);
         n += len;

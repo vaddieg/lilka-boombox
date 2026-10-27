@@ -218,14 +218,39 @@ void MusicPlayer::toggleShuffle() {
     m_shuffled = true;
 }
 
+// Rob template to access private members of Audio without modifying upstream Audio.h
+template <typename Tag>
+struct RobResult {
+    typedef typename Tag::type type;
+    static type ptr;
+};
+template <typename Tag>
+typename RobResult<Tag>::type RobResult<Tag>::ptr;
+
+template <typename Tag, typename Tag::type P>
+struct Rob : RobResult<Tag> {
+    struct Filler {
+        Filler() { RobResult<Tag>::ptr = P; }
+    };
+    static Filler filler_obj;
+};
+template <typename Tag, typename Tag::type P>
+typename Rob<Tag, P>::Filler Rob<Tag, P>::filler_obj;
+
+struct Audio_m_i2s_tx_handle { typedef i2s_chan_handle_t Audio::*type; };
+template struct Rob<Audio_m_i2s_tx_handle, &Audio::m_i2s_tx_handle>;
+
+struct Audio_I2Sstop { typedef esp_err_t (Audio::*type)(); };
+template struct Rob<Audio_I2Sstop, &Audio::I2Sstop>;
+
 bool MusicPlayer::i2sRelease() {
     if (!m_audioOn) return true;
     // ESP32-audioI2S exposes no teardown (I2Sstop() only disables the TX
     // channel, leaving I2S_NUM_0 allocated). Delete it so the AirPlay stack
     // can create its own channel on the same port. begin()+setPinout()
     // recreates everything on the way back.
-    esp_err_t e1 = aud.I2SstopPublic();
-    i2s_chan_handle_t h = aud.i2sTxHandle();
+    esp_err_t e1 = (aud.*RobResult<Audio_I2Sstop>::ptr)();
+    i2s_chan_handle_t h = aud.*RobResult<Audio_m_i2s_tx_handle>::ptr;
     if (h == nullptr) return true; // never started
     esp_err_t e2 = i2s_del_channel(h);
     Serial.printf("[player] i2sRelease: stop=%s del=%s\n",

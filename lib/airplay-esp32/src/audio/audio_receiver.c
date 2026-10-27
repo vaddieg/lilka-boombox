@@ -255,6 +255,7 @@ void audio_receiver_set_anchor_time(uint64_t clock_id, uint64_t network_time_ns,
     //   - Otherwise fall back to the elapsed-time estimate (covers the edge
     //     case where a track changes without a prior PAUSE signal).
     uint32_t reference_rtp;
+    bool was_paused = receiver.paused_rtp_valid;
     if (receiver.paused_rtp_valid) {
       reference_rtp = receiver.paused_rtp;
       receiver.paused_rtp_valid = false; // one-shot: consume after use
@@ -363,8 +364,17 @@ void audio_receiver_set_anchor_time(uint64_t clock_id, uint64_t network_time_ns,
     ptp_clock_set_master_clock_id(clock_id);
   }
 
-  audio_timing_set_anchor(&receiver.timing, &receiver.stream->format, clock_id,
-                          network_time_ns, rtp_time);
+  bool was_paused = receiver.paused_rtp_valid;
+  // Only update timing anchor if playback has not started, or if an actual seek/flush/resume occurred.
+  // Periodic anchors (sent by Mac every ~10s while playing) must not overwrite the local anchor time,
+  // which would inject network arrival jitter and cause periodic audio skips.
+  if (!receiver.timing.anchor_valid || !receiver.timing.playout_started ||
+      gates_armed || was_paused) {
+    audio_timing_set_anchor(&receiver.timing, &receiver.stream->format, clock_id,
+                            network_time_ns, rtp_time);
+  } else {
+    ESP_LOGD(TAG, "Ignoring periodic mid-stream anchor (playout active)");
+  }
 }
 
 void audio_receiver_set_playing(bool playing) {

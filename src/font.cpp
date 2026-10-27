@@ -51,7 +51,7 @@ const char* fit(const char* s, int16_t maxW, uint8_t scale) {
     size_t n = 0;
     buf[0] = 0;
     while (*p) {
-        size_t len = (*p < 0x80) ? 1 : ((*p < 0xE0) ? 2 : 3);
+        size_t len = charLen(p);
         if (n + len + 2 > sizeof(buf)) break;
         memcpy(buf + n, p, len);
         n += len;

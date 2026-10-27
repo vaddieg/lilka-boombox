@@ -28,4 +28,25 @@ int16_t width(const char* utf8, uint8_t scale = 1);
 /// UTF-8-aware truncation to maxW px, appending '~' when truncated.
 /// Returns a static buffer — use the result immediately.
 const char* fit(const char* utf8, int16_t maxW, uint8_t scale = 1);
+
+/// Returns the byte length (1..4) of the UTF-8 codepoint starting at p.
+/// Validates continuation bytes to prevent buffer over-reads.
+inline size_t charLen(const unsigned char* p) {
+    if (!p || !*p) return 0;
+    unsigned char c = *p;
+    size_t len = 1;
+    if (c < 0x80) len = 1;
+    else if ((c & 0xE0) == 0xC0) len = 2;
+    else if ((c & 0xF0) == 0xE0) len = 3;
+    else if ((c & 0xF8) == 0xF0) len = 4;
+    else return 1;
+    for (size_t i = 1; i < len; i++) {
+        if ((p[i] & 0xC0) != 0x80) return 1;
+    }
+    return len;
+}
+
+inline size_t charLen(const char* p) {
+    return charLen((const unsigned char*)p);
+}
 }

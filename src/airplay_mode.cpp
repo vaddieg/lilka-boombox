@@ -8,7 +8,6 @@
 
 #include "hw.h"   // Arduino_GFX type
 #include <SPI.h>
-#include "driver/spi_master.h"
 
 #include "player.h"
 
@@ -44,16 +43,8 @@ const char kEnterKey[] = "ap_enter";
 constexpr int kQuitGpio = 6;
 constexpr uint32_t kQuitHoldMs = 2000;
 
-// The prebuilt esp_netif headers are trimmed (no esp_netif_is_wifi*), so
-// declare the bits we need directly.
-struct ip_info_min {
-    struct in_addr ip, netmask, gw;
-};
 extern "C" {
-esp_netif_t* esp_netif_next(esp_netif_t*);
-esp_err_t    esp_netif_get_ip_info(esp_netif_t*, struct ip_info_min*);
-const char*  esp_netif_get_ifkey(esp_netif_t*);
-esp_err_t    mdns_service_exists(const char* service, const char* proto);
+esp_err_t mdns_service_exists(const char* service, const char* proto);
 }
 
 void airplay_task(void*) {
@@ -140,14 +131,12 @@ void airplay_task(void*) {
         // WiFi object was deinit'd and its netif table is stale.
         vTaskDelay(pdMS_TO_TICKS(3000));
         bool ipFound = false;
-        for (esp_netif_t* nif = esp_netif_next(nullptr); nif; nif = esp_netif_next(nif)) {
+        for (esp_netif_t* nif = esp_netif_next_unsafe(nullptr); nif; nif = esp_netif_next_unsafe(nif)) {
             const char* key = esp_netif_get_ifkey(nif);
             if (key && strncmp(key, "WIFI_STA", 8) == 0) {
-                struct ip_info_min info = {};
+                esp_netif_ip_info_t info = {};
                 if (esp_netif_get_ip_info(nif, &info) == ESP_OK) {
-                    Serial.printf("[airplay] STA %s ip=%d.%d.%d.%d\n", key,
-                                  ntohl(info.ip.s_addr) >> 24, (ntohl(info.ip.s_addr) >> 16) & 0xFF,
-                                  (ntohl(info.ip.s_addr) >> 8) & 0xFF, ntohl(info.ip.s_addr) & 0xFF);
+                    Serial.printf("[airplay] STA %s ip=" IPSTR "\n", key, IP2STR(&info.ip));
                     ipFound = true;
                 }
             }

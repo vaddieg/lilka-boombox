@@ -355,6 +355,14 @@ void audio_timing_set_anchor(audio_timing_t *timing,
     return;
   }
 
+  // If playout has already started, do NOT overwrite anchor_local_time_ns on periodic
+  // mid-stream anchors (Mac re-sends SETRATEANCHORTIME / 0x54 sync packets every ~10s).
+  // Mid-stream arrival time carries network/Wi-Fi jitter that shifts early_us and causes skips.
+  if (timing->playout_started && timing->anchor_valid) {
+    ESP_LOGD(TAG, "audio_timing_set_anchor: playout active, ignoring mid-stream re-anchor");
+    return;
+  }
+
   (void)clock_id;
 
   int64_t now_ns = (int64_t)esp_timer_get_time() * 1000LL;
